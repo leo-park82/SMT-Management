@@ -71,6 +71,11 @@ def load_style():
         html, body, [class*="css"] { font-family: 'Pretendard', sans-serif !important; color: #1e293b; }
         .stApp { background-color: #f8fafc; }
         
+        /* [중요] 사이드바 및 확장 버튼 완전히 숨기기 */
+        [data-testid="stSidebar"] { display: none; }
+        [data-testid="collapsedControl"] { display: none; }
+        section[data-testid="stSidebar"] { display: none; }
+        
         /* 탭 스타일 개선 - 상단 고정 */
         .stTabs [data-baseweb="tab-list"] { 
             gap: 8px; 
@@ -128,6 +133,7 @@ def check_login():
     return False
 
 def render_login():
+    # [수정] 로그인 화면 중앙 배치 및 스타일링
     col1, col2, col3 = st.columns([4, 3, 4])
     with col2:
         st.markdown("<br><br>", unsafe_allow_html=True)
