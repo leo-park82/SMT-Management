@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta, timezone
 import hashlib
 import os
+import time
 import tempfile
 import urllib.request
 from fpdf import FPDF
@@ -115,29 +116,59 @@ def append_data(data_dict, sheet_name):
     except: return False
 
 # ------------------------------------------------------------------
-# 로그인 및 화면 렌더링 함수 (UI) - **네비게이션 로직 없음**
+# 로그인 및 화면 렌더링 함수 (UI)
 # ------------------------------------------------------------------
 
 def render_login():
     """로그인 화면 렌더링"""
-    col1, col2, col3 = st.columns([1, 2, 1])
+    # [수정] 사용자 정보 (비밀번호 해시 및 역할 적용)
+    USERS = {
+        "cimon": {"name": "관리자", "password_hash": make_hash("7801083"), "role": "admin"},
+        "박종선": {"name": "박종선", "password_hash": make_hash("1083"), "role": "worker"},
+        "김윤석": {"name": "김윤석", "password_hash": make_hash("1734"), "role": "worker"},
+        "김명숙": {"name": "김명숙", "password_hash": make_hash("8943"), "role": "worker"}
+    }
+
+    # 중앙 정렬을 위해 컬럼 비율 조정
+    col1, col2, col3 = st.columns([1, 1.5, 1])
+    
     with col2:
+        st.write("") # 상단 여백
+        st.write("")
+        
+        # 로고 이미지 표시
+        if os.path.exists("logo.png"):
+            st.image("logo.png", use_container_width=True)
+        else:
+            st.markdown("<h1 style='text-align: center; color: #1e3a8a;'>🏭 SMT System</h1>", unsafe_allow_html=True)
+            
         st.markdown("### 🔐 로그인")
+        
         with st.form("login_form"):
             username = st.text_input("아이디")
             password = st.text_input("비밀번호", type="password")
-            submit = st.form_submit_button("접속", use_container_width=True)
+            
+            st.markdown("######") # 간격 조절
+            
+            submit = st.form_submit_button("접속", use_container_width=True, type="primary")
             
             if submit:
-                # 간단한 하드코딩 인증 예시 (실제 사용 시 DB 연동 권장)
-                if username == "admin" and password == "1234":
-                    st.session_state.logged_in = True
-                    st.session_state.user_name = "관리자"
-                    st.session_state.role = "admin"
-                    st.success("로그인 성공!")
-                    st.rerun()
+                if username in USERS:
+                    user_data = USERS[username]
+                    # 입력된 비밀번호를 해시화하여 저장된 해시와 비교
+                    if make_hash(password) == user_data["password_hash"]:
+                        st.success(f"환영합니다, {user_data['name']}님! 접속 중...")
+                        
+                        st.session_state.logged_in = True
+                        st.session_state.user_name = user_data["name"]
+                        st.session_state.role = user_data["role"]
+                        
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error("비밀번호가 일치하지 않습니다.")
                 else:
-                    st.error("아이디 또는 비밀번호가 잘못되었습니다.")
+                    st.error("존재하지 않는 아이디입니다.")
 
 def render_dashboard():
     """대시보드 화면 렌더링"""
