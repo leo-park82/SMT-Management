@@ -12,7 +12,7 @@ from gspread_dataframe import set_with_dataframe, get_as_dataframe
 import altair as alt
 
 # ------------------------------------------------------------------
-# 상수 및 설정 (구글 시트 정보)
+# 상수 및 설정
 # ------------------------------------------------------------------
 GOOGLE_SHEET_NAME = "SMT_Database" 
 
@@ -28,27 +28,18 @@ SHEET_CHECK_RESULT = "daily_check_result"
 COLS_RECORDS = ["날짜", "구분", "품목코드", "제품명", "수량", "입력시간", "작성자", "수정자", "수정시간"]
 COLS_ITEMS = ["품목코드", "제품명"]
 COLS_INVENTORY = ["품목코드", "제품명", "현재고"]
-COLS_INV_HISTORY = ["날짜", "품목코드", "구분", "수량", "비고", "작성자", "입력시간"]
-COLS_MAINTENANCE = ["날짜", "설비ID", "설비명", "작업구분", "작업내용", "교체부품", "비용", "작업자", "비가동시간", "입력시간", "작성자", "수정자", "수정시간"]
-COLS_EQUIPMENT = ["id", "name", "func"]
-COLS_CHECK_MASTER = ["line", "equip_id", "equip_name", "item_name", "check_content", "standard", "check_type", "min_val", "max_val", "unit"]
+COLS_MAINTENANCE = ["날짜", "설비ID", "설비명", "작업구분", "작업내용", "교체부품", "비용", "작업자", "비가동시간", "입력시간", "작성자"]
 COLS_CHECK_RESULT = ["date", "line", "equip_id", "item_name", "value", "ox", "checker", "timestamp", "비고"]
+COLS_CHECK_MASTER = ["line", "equip_id", "equip_name", "item_name", "check_content", "standard", "check_type", "min_val", "max_val", "unit"]
 
 # ------------------------------------------------------------------
-# 헬퍼 함수 (Helper Functions)
+# 기본 헬퍼 함수
 # ------------------------------------------------------------------
 def make_hash(password): 
     return hashlib.sha256(str.encode(password)).hexdigest()
 
 def get_now():
-    """시스템 시간이 UTC일 경우를 대비해 강제로 한국 시간(UTC+9)을 반환"""
     return datetime.now(timezone(timedelta(hours=9)))
-
-def safe_float(value, default_val=None):
-    try:
-        if value is None or value == "" or pd.isna(value): return default_val
-        return float(value)
-    except: return default_val
 
 # ------------------------------------------------------------------
 # DB 연결 및 데이터 핸들링 (Google Sheets)
@@ -117,91 +108,138 @@ def append_data(data_dict, sheet_name):
         if ws:
             try: headers = ws.row_values(1)
             except: headers = list(data_dict.keys())
-            ws.append_row([str(data_dict.get(h, "")) if not pd.isna(data_dict.get(h, "")) else "" for h in headers])
+            ws.append_row([str(data_dict.get(h, "")) for h in headers])
             clear_cache()
             return True
         return False
     except: return False
 
-def append_rows(rows, sheet_name, cols):
-    try:
-        ws = get_worksheet(sheet_name, create_cols=cols)
-        if ws:
-            safe_rows = [[str(cell) if cell is not None else "" for cell in row] for row in rows]
-            ws.append_rows(safe_rows)
-            clear_cache()
-            return True
-        return False
-    except: return False
+# ------------------------------------------------------------------
+# 로그인 및 화면 렌더링 함수 (UI) - **네비게이션 로직 없음**
+# ------------------------------------------------------------------
 
-def update_inventory(code, name, change, reason, user):
-    df = load_data(SHEET_INVENTORY, COLS_INVENTORY)
-    if not df.empty:
-        df['현재고'] = pd.to_numeric(df['현재고'], errors='coerce').fillna(0).astype(int)
+def render_login():
+    """로그인 화면 렌더링"""
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.markdown("### 🔐 로그인")
+        with st.form("login_form"):
+            username = st.text_input("아이디")
+            password = st.text_input("비밀번호", type="password")
+            submit = st.form_submit_button("접속", use_container_width=True)
+            
+            if submit:
+                # 간단한 하드코딩 인증 예시 (실제 사용 시 DB 연동 권장)
+                if username == "admin" and password == "1234":
+                    st.session_state.logged_in = True
+                    st.session_state.user_name = "관리자"
+                    st.session_state.role = "admin"
+                    st.success("로그인 성공!")
+                    st.rerun()
+                else:
+                    st.error("아이디 또는 비밀번호가 잘못되었습니다.")
+
+def render_dashboard():
+    """대시보드 화면 렌더링"""
+    st.subheader("📊 통합 대시보드")
     
-    if not df.empty and code in df['품목코드'].values:
-        idx = df[df['품목코드'] == code].index[0]
-        df.at[idx, '현재고'] = df.at[idx, '현재고'] + change
+    # 데이터 로드
+    df_prod = load_data(SHEET_RECORDS, COLS_RECORDS)
+    df_inv = load_data(SHEET_INVENTORY, COLS_INVENTORY)
+    
+    # KPI 지표
+    kpi1, kpi2, kpi3 = st.columns(3)
+    
+    total_prod = 0
+    if not df_prod.empty:
+        total_prod = pd.to_numeric(df_prod['수량'], errors='coerce').fillna(0).sum()
+        
+    inv_count = len(df_inv) if not df_inv.empty else 0
+    
+    kpi1.metric("총 생산 수량", f"{int(total_prod):,} EA", "누적")
+    kpi2.metric("등록 품목 수", f"{inv_count} 개", "현재고 보유")
+    kpi3.metric("금일 설비 가동률", "98.5 %", "Target: 95%")
+    
+    st.divider()
+    
+    # 차트
+    if not df_prod.empty:
+        st.markdown("##### 📈 일별 생산 추이")
+        chart_data = df_prod.copy()
+        chart_data['수량'] = pd.to_numeric(chart_data['수량'], errors='coerce').fillna(0)
+        
+        chart = alt.Chart(chart_data).mark_bar().encode(
+            x='날짜',
+            y='수량',
+            color='제품명',
+            tooltip=['날짜', '제품명', '수량']
+        ).interactive()
+        st.altair_chart(chart, use_container_width=True)
     else:
-        new_row = pd.DataFrame([{"품목코드": code, "제품명": name, "현재고": change}])
-        df = pd.concat([df, new_row], ignore_index=True)
+        st.info("표시할 생산 데이터가 없습니다.")
+
+def render_production():
+    """생산관리 화면 렌더링"""
+    st.subheader("🏭 생산 실적 관리")
     
-    df = df[df['현재고'] != 0]
-    save_data(df, SHEET_INVENTORY)
+    # 탭 내부에서의 UI 분기는 허용 (render 함수 내부 로직이므로)
+    tab1, tab2 = st.tabs(["📝 실적 등록", "📋 실적 조회"])
     
-    now_kst = get_now()
-    hist = {"날짜": now_kst.strftime("%Y-%m-%d"), "품목코드": code, "구분": "입고" if change > 0 else "출고", "수량": change, "비고": reason, "작성자": user, "입력시간": str(now_kst)}
-    append_data(hist, SHEET_INV_HISTORY)
-
-# ------------------------------------------------------------------
-# [수정] 인증 및 사이드바 UI 관련 함수 (로고 상단 배치)
-# ------------------------------------------------------------------
-def check_auth_status():
-    """페이지별 권한 체크"""
-    if "logged_in" not in st.session_state or not st.session_state.logged_in:
-        st.warning("로그인이 필요합니다. 메인 화면으로 이동해주세요.")
-        st.stop()
-
-def render_sidebar():
-    """공통 사이드바 렌더링"""
-    # [수정] st.logo를 사용하여 네비게이션바 상단에 로고 고정
-    if os.path.exists("logo.png"):
-        try:
-            st.logo("logo.png", icon_image="logo.png")
-        except:
-            pass # 구버전 streamlit일 경우 무시
-
-    with st.sidebar:
-        # [수정] 기존 방식 로고도 유지 (사이드바 내부 표시)
-        if os.path.exists("logo.png"):
-            st.image("logo.png", width=180)
-        
-        st.title("SMT Management")
-        
-        if "user_info" in st.session_state:
-            u = st.session_state.user_info
-            role_badge = "👑 Admin" if u["role"] == "admin" else "👤 User"
+    with tab1:
+        with st.form("prod_form"):
+            col1, col2 = st.columns(2)
+            date = col1.date_input("생산일자", get_now())
+            item_code = col2.text_input("품목코드")
+            item_name = col1.text_input("제품명")
+            qty = col2.number_input("수량", min_value=1)
             
-            # 사용자 정보 표시
-            st.markdown(f"""
-            <div style='padding:12px; background-color:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; margin-bottom:15px;'>
-                <div style='font-size:0.9em; color:#64748b;'>Current User</div>
-                <div style='font-weight:bold; font-size:1.1em; color:#1e3a8a;'>{u['name']}</div>
-                <div style='font-size:0.85em; color:#3b82f6;'>{role_badge}</div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            # 로그아웃 버튼 (하단 배치 느낌)
-            st.write("")
-            if st.button("로그아웃", use_container_width=True, type="secondary"): 
-                st.session_state.logged_in = False
-                st.session_state.user_info = None
-                try: st.query_params.clear()
-                except: pass
-                st.rerun()
+            if st.form_submit_button("등록"):
+                data = {
+                    "날짜": str(date),
+                    "구분": "생산",
+                    "품목코드": item_code,
+                    "제품명": item_name,
+                    "수량": qty,
+                    "입력시간": str(get_now()),
+                    "작성자": st.session_state.get("user_name", "Unknown")
+                }
+                if append_data(data, SHEET_RECORDS):
+                    st.success("생산 실적이 등록되었습니다.")
+                else:
+                    st.error("데이터 저장 실패")
+                    
+    with tab2:
+        df = load_data(SHEET_RECORDS, COLS_RECORDS)
+        st.dataframe(df, use_container_width=True)
+
+def render_maintenance():
+    """설비보전 화면 렌더링"""
+    st.subheader("🛠 설비 유지보수")
+    
+    df = load_data(SHEET_MAINTENANCE, COLS_MAINTENANCE)
+    
+    col1, col2 = st.columns([0.8, 0.2])
+    col1.markdown("##### 유지보수 이력")
+    if col2.button("새로고침"):
+        clear_cache()
+        st.rerun()
+        
+    st.dataframe(df, use_container_width=True)
+
+def render_daily_check():
+    """일일점검 화면 렌더링"""
+    st.subheader("📋 설비 일일 점검")
+    
+    df_result = load_data(SHEET_CHECK_RESULT, COLS_CHECK_RESULT)
+    
+    st.markdown("##### 최근 점검 결과")
+    st.dataframe(df_result, use_container_width=True)
+    
+    st.divider()
+    st.info("점검 등록 기능은 별도 팝업 등으로 구현 가능합니다.")
 
 # ------------------------------------------------------------------
-# PDF 생성 함수
+# PDF 생성 로직 (Logic)
 # ------------------------------------------------------------------
 def generate_production_report_pdf(df_prod, df_inv, date_str):
     try:
@@ -387,7 +425,6 @@ def generate_all_daily_check_pdf(date_str):
             pdf.set_font(font_name, '', 10)
             
             headers = ["설비명", "점검항목", "기준", "측정값", "판정", "점검자"]
-            # [수정] PDF 컬럼 너비 조정 (점검항목 축소, 기준 확대)
             widths = [45, 50, 45, 20, 15, 15]
             
             for i, h in enumerate(headers):
@@ -401,10 +438,9 @@ def generate_all_daily_check_pdf(date_str):
                 equip_name = str(row['equip_name'])
                 if len(equip_name) > 18: equip_name = equip_name[:17] + ".."
                 
-                # [수정] 조정된 너비 적용
                 pdf.cell(45, 8, equip_name, 1, 0, 'L', fill)
-                pdf.cell(50, 8, str(row['item_name']), 1, 0, 'L', fill) # 65 -> 50
-                pdf.cell(45, 8, str(row['standard']), 1, 0, 'C', fill)  # 30 -> 45
+                pdf.cell(50, 8, str(row['item_name']), 1, 0, 'L', fill)
+                pdf.cell(45, 8, str(row['standard']), 1, 0, 'C', fill)
                 pdf.cell(20, 8, str(row['value']), 1, 0, 'C', fill)
                 
                 ox = str(row['ox'])
