@@ -154,27 +154,46 @@ def update_inventory(code, name, change, reason, user):
     append_data(hist, SHEET_INV_HISTORY)
 
 # ------------------------------------------------------------------
-# 인증 및 UI 관련 함수
+# [수정] 인증 및 사이드바 UI 관련 함수 (로고 상단 배치)
 # ------------------------------------------------------------------
 def check_auth_status():
-    """페이지별 권한 체크 - 로그인 안되어 있으면 중단"""
+    """페이지별 권한 체크"""
     if "logged_in" not in st.session_state or not st.session_state.logged_in:
         st.warning("로그인이 필요합니다. 메인 화면으로 이동해주세요.")
         st.stop()
 
 def render_sidebar():
     """공통 사이드바 렌더링"""
+    # [수정] st.logo를 사용하여 네비게이션바 상단에 로고 고정
+    if os.path.exists("logo.png"):
+        try:
+            st.logo("logo.png", icon_image="logo.png")
+        except:
+            pass # 구버전 streamlit일 경우 무시
+
     with st.sidebar:
+        # [수정] 기존 방식 로고도 유지 (사이드바 내부 표시)
         if os.path.exists("logo.png"):
             st.image("logo.png", width=180)
-        st.title("SMT")
+        
+        st.title("SMT Management")
         
         if "user_info" in st.session_state:
             u = st.session_state.user_info
             role_badge = "👑 Admin" if u["role"] == "admin" else "👤 User"
-            st.markdown(f"<div style='padding:10px; background:#f1f5f9; border-radius:8px; margin-bottom:10px;'><b>{u['name']}</b>님 ({role_badge})</div>", unsafe_allow_html=True)
             
-            if st.button("로그아웃", use_container_width=True): 
+            # 사용자 정보 표시
+            st.markdown(f"""
+            <div style='padding:12px; background-color:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; margin-bottom:15px;'>
+                <div style='font-size:0.9em; color:#64748b;'>Current User</div>
+                <div style='font-weight:bold; font-size:1.1em; color:#1e3a8a;'>{u['name']}</div>
+                <div style='font-size:0.85em; color:#3b82f6;'>{role_badge}</div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # 로그아웃 버튼 (하단 배치 느낌)
+            st.write("")
+            if st.button("로그아웃", use_container_width=True, type="secondary"): 
                 st.session_state.logged_in = False
                 st.session_state.user_info = None
                 try: st.query_params.clear()
@@ -382,9 +401,10 @@ def generate_all_daily_check_pdf(date_str):
                 equip_name = str(row['equip_name'])
                 if len(equip_name) > 18: equip_name = equip_name[:17] + ".."
                 
+                # [수정] 조정된 너비 적용
                 pdf.cell(45, 8, equip_name, 1, 0, 'L', fill)
-                pdf.cell(50, 8, str(row['item_name']), 1, 0, 'L', fill)
-                pdf.cell(45, 8, str(row['standard']), 1, 0, 'C', fill)
+                pdf.cell(50, 8, str(row['item_name']), 1, 0, 'L', fill) # 65 -> 50
+                pdf.cell(45, 8, str(row['standard']), 1, 0, 'C', fill)  # 30 -> 45
                 pdf.cell(20, 8, str(row['value']), 1, 0, 'C', fill)
                 
                 ox = str(row['ox'])
